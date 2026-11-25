@@ -1,6 +1,6 @@
 """One-off: log in to Gofrugal HQ and list how Smart Report fetches report data (no secrets printed)."""
 import os, re, sys, requests, urllib.parse
-base = os.environ["GF_URL"].split("/RayMedi_HQ")[0] + "/RayMedi_HQ/"
+base = (os.environ.get("GF_URL") or "https://sanchuhq.gofrugal.com/RayMedi_HQ/").split("/RayMedi_HQ")[0] + "/RayMedi_HQ/"
 s = requests.Session(); s.headers["User-Agent"] = "Mozilla/5.0 Chrome/124"
 s.get(base + "mainIndex.do", timeout=60)
 r = s.post(base + "j_security_check", data={"j_username": os.environ["GF_USER"], "j_password": os.environ["GF_PASS"]}, timeout=60)
