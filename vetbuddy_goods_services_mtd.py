@@ -15,6 +15,9 @@ What it does
         Daywise      - Final Sales net of returns, date x unit (feeds the VETBUDDY column of the POS report)
         <Unit> sheets- the full line-item data for each unit
   4. Optional: uploads it to SharePoint (Finance Hub) if the SP_* settings are present.
+  5. Fills the VETBUDDY column of the month's unit-wise POS report
+     (Finance Hub / POS Report / POS_Report_Unitwise_<Mon_YYYY>.xlsx), creating it on the
+     1st of the month. Only that column is written; team inputs are kept.
 
 Usage
   python vetbuddy_goods_services_mtd.py                 normal run (MTD D-1)
@@ -373,12 +376,7 @@ def build(data, d_from, d_to, path):
     units = list(data)
     head(d, 3, ["Date"] + units + ["TOTAL"])
     days = [d_from + dt.timedelta(n) for n in range((d_to - d_from).days + 1)]
-    agg = {}
-    for unit, (_, rows) in data.items():
-        for x in rows:
-            day = parse_date(x.get("Date"))
-            if day:
-                agg[(day, unit)] = agg.get((day, unit), 0) + to_num(x.get("Final Sales")) - to_num(x.get("Return Total"))
+    agg = daywise_totals(data)
     for i, day in enumerate(days):
         rr = 4 + i
         d.cell(rr, 1, day).number_format = "DD-MM-YYYY"
@@ -421,29 +419,77 @@ def build(data, d_from, d_to, path):
 
 
 # ----------------------------------------------------------------- SharePoint
-def sp_upload(path, folder):
-    tenant, cid, sec = env("SP_TENANT_ID"), env("SP_CLIENT_ID"), env("SP_CLIENT_SECRET")
-    if not (tenant and cid and sec):
-        log("SharePoint settings not set - skipping upload")
-        return
-    tok = requests.post(f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token", data={
-        "client_id": cid, "client_secret": sec, "grant_type": "client_credentials",
-        "scope": "https://graph.microsoft.com/.default"}, timeout=60).json()["access_token"]
-    H = {"Authorization": f"Bearer {tok}"}
-    g = "https://graph.microsoft.com/v1.0"
-    host = env("SP_SITE_HOST", "sanchuhospital.sharepoint.com")
-    sp = env("SP_SITE_PATH", "")
-    site = requests.get(f"{g}/sites/{host}" + (f":/{sp.strip('/')}" if sp else ""), headers=H, timeout=60).json()
-    lib = env("SP_LIBRARY", "Finance Hub")
-    drives = requests.get(f"{g}/sites/{site['id']}/drives", headers=H, timeout=60).json()["value"]
-    drive = next((x for x in drives if x["name"] == lib), None)
-    if not drive:
-        raise RuntimeError(f"SharePoint library '{lib}' not found")
-    dest = urllib.parse.quote(f"{folder}/{path.name}")
-    url = f"{g}/drives/{drive['id']}/root:/{dest}:/content"
-    r = requests.put(url, headers=H, data=path.read_bytes(), timeout=300)
-    r.raise_for_status()
-    log("Uploaded to SharePoint:", r.json().get("webUrl"))
+class SharePoint:
+    def __init__(self):
+        tenant, cid, sec = env("SP_TENANT_ID"), env("SP_CLIENT_ID"), env("SP_CLIENT_SECRET")
+        self.ok = bool(tenant and cid and sec)
+        if not self.ok:
+            return
+        tok = requests.post(f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token", data={
+            "client_id": cid, "client_secret": sec, "grant_type": "client_credentials",
+            "scope": "https://graph.microsoft.com/.default"}, timeout=60).json()["access_token"]
+        self.H = {"Authorization": f"Bearer {tok}"}
+        self.g = "https://graph.microsoft.com/v1.0"
+        host = env("SP_SITE_HOST", "sanchuhospital.sharepoint.com")
+        sp = env("SP_SITE_PATH", "")
+        site = requests.get(f"{self.g}/sites/{host}" + (f":/{sp.strip('/')}" if sp else ""),
+                            headers=self.H, timeout=60).json()
+        lib = env("SP_LIBRARY", "Finance Hub")
+        drives = requests.get(f"{self.g}/sites/{site['id']}/drives", headers=self.H, timeout=60).json()["value"]
+        drive = next((x for x in drives if x["name"] == lib), None)
+        if not drive:
+            raise RuntimeError(f"SharePoint library '{lib}' not found")
+        self.drive = drive["id"]
+
+    def _url(self, path):
+        return f"{self.g}/drives/{self.drive}/root:/{urllib.parse.quote(path)}:/content"
+
+    def download(self, path):
+        r = requests.get(self._url(path), headers=self.H, timeout=300)
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.content
+
+    def upload(self, path, content):
+        r = requests.put(self._url(path), headers=self.H, data=content, timeout=300)
+        if r.status_code == 423:
+            raise RuntimeError(f"'{path}' is locked (open in Excel by someone) - not updated")
+        r.raise_for_status()
+        log("Uploaded to SharePoint:", r.json().get("webUrl"))
+
+
+def daywise_totals(data):
+    agg = {}
+    for unit, (_, rows) in data.items():
+        for x in rows:
+            day = parse_date(x.get("Date"))
+            if day:
+                agg[(day, unit)] = agg.get((day, unit), 0) + to_num(x.get("Final Sales")) - to_num(x.get("Return Total"))
+    return agg
+
+
+def update_pos(sp, data, d_from, d_to):
+    """Fill the VETBUDDY column of the month's POS report (kept on SharePoint)."""
+    import pos_report
+    from openpyxl import load_workbook
+    month = d_from.replace(day=1)
+    name = pos_report.file_name(month)
+    sp_path = f"{env('POS_SP_FOLDER', 'POS Report')}/{name}"
+    content = sp.download(sp_path) if sp and sp.ok else None
+    if content:
+        wb = load_workbook(io.BytesIO(content))
+        log("POS report: updating existing", sp_path)
+    else:
+        wb = pos_report.build_template(month, list(UNITS))
+        log("POS report: creating new", name)
+    n = pos_report.fill_vetbuddy(wb, daywise_totals(data))
+    log(f"POS report: VETBUDDY filled for {n} unit-days")
+    wb.calculation.fullCalcOnLoad = True      # Excel recalculates formulas when opened
+    path = OUT / name
+    wb.save(path)
+    if sp and sp.ok:
+        sp.upload(sp_path, path.read_bytes())
 
 
 # ----------------------------------------------------------------- main
@@ -491,8 +537,15 @@ def main():
     path = OUT / f"VetBuddy_GoodsServices_MTD_{d_to:%Y-%m-%d}.xlsx"
     build(data, d_from, d_to, path)
     log("Saved", path)
+    sp = None
     if not args.no_upload:
-        sp_upload(path, f"{env('GS_SP_FOLDER', 'Goods & Services MTD')}/{d_to:%Y-%m}")
+        sp = SharePoint()
+        if sp.ok:
+            sp.upload(f"{env('GS_SP_FOLDER', 'Goods & Services MTD')}/{d_to:%Y-%m}/{path.name}", path.read_bytes())
+        else:
+            log("SharePoint settings not set - skipping upload")
+    if d_from.month == d_to.month:
+        update_pos(sp, data, d_from, d_to)
 
 
 if __name__ == "__main__":
