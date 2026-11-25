@@ -87,21 +87,53 @@ class VetBuddy:
                                         "AppleWebKit/537.36 Chrome/124 Safari/537.36")
         self.user, self.pwd = user, pwd
 
-    def login(self):
+    @staticmethod
+    def _text(html):
+        t = re.sub(r"(?is)<(script|style).*?</\1>", " ", html)
+        t = re.sub(r"<[^>]+>", " ", t)
+        return re.sub(r"\s+", " ", t).strip()
+
+    def _report_page_ok(self):
+        chk = self.s.get(self.base + "/sanchu/sales_by_planitem.php",
+                         params={"txthidedate": "true"}, timeout=60,
+                         headers={"Referer": self.base + "/business_menu.phtml"})
+        return 'name="selclinic"' in chk.text
+
+    def _post_login(self):
+        # the login page calls this on load, then posts the form as multipart/form-data
         self.s.get(self.base + "/", timeout=60)
-        r = self.s.post(self.base + "/comm_whiteboard.html",
-                        data={"userid": self.user, "passwd": self.pwd, "login": "login"},
-                        timeout=60)
-        r.raise_for_status()
-        # same call the login page makes after a successful sign-in
         self.s.get(self.base + "/vet_inc_session.html",
                    params={"calledfromlogin": "true", "viewport": "1920|1080"}, timeout=60)
-        chk = self.s.get(self.base + "/sanchu/sales_by_planitem.php",
-                         params={"txthidedate": "true"}, timeout=60)
-        if 'name="selclinic"' not in chk.text:
-            raise RuntimeError("VetBuddy login failed (report page did not open). "
-                               "Check VB_USER / VB_PASS.")
-        log("Logged in to VetBuddy")
+        r = self.s.post(self.base + "/comm_whiteboard.html",
+                        files={"userid": (None, self.user), "passwd": (None, self.pwd),
+                               "login": (None, "login")},
+                        headers={"Referer": self.base + "/", "Origin": self.base},
+                        timeout=60)
+        r.raise_for_status()
+        self.s.get(self.base + "/vet_inc_session.html",
+                   params={"calledfromlogin": "true", "viewport": "1920|1080"}, timeout=60)
+        return r
+
+    def login(self):
+        r = self._post_login()
+        if self._report_page_ok():
+            log("Logged in to VetBuddy")
+            return
+        page = self._text(r.text)
+        log("After sign-in VetBuddy showed:", r.url, "|", page[:400])
+        # VetBuddy may refuse a second session for the same user ("logged in on another device")
+        if re.search(r"another device|other device|already logged|logoutfromdevice", r.text, re.I):
+            log("Account is signed in elsewhere - closing the other session and retrying")
+            self.s.get(self.base + "/vetapp_start.html",
+                       params={"logoutfromdevice": "true", "uid": ""}, timeout=60)
+            self.s.cookies.set("seed", str(int(time.time() * 1000)))
+            r = self._post_login()
+            if self._report_page_ok():
+                log("Logged in to VetBuddy")
+                return
+            log("After retry VetBuddy showed:", r.url, "|", self._text(r.text)[:400])
+        raise RuntimeError("VetBuddy login failed (report page did not open). "
+                           "See the message above; check VB_USER / VB_PASS.")
 
     def download(self, clinic_id, d_from, d_to):
         """Returns the .xls bytes of the report for one clinic and date range."""
