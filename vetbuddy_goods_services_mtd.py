@@ -340,7 +340,7 @@ def build(data, d_from, d_to, path):
     s["A1"].font = Font(name="Arial", bold=True, size=14)
     s["A2"] = f"Period: {d_from:%d-%m-%Y} to {d_to:%d-%m-%Y}   |   Generated {dt.datetime.now():%d-%m-%Y %I:%M %p}"
     s["A2"].font = Font(name="Arial", italic=True, size=9)
-    cols = ["Unit", "Line items", "Invoices"] + NUM_COLS + ["Net (Final Sales - Return Total)"]
+    cols = ["Unit", "Line items", "Invoices"] + NUM_COLS + ["Net Final Sales (Final Sales - Return Total)"]
     head(s, 4, cols)
     r = 5
     for unit, (_, rows) in data.items():
@@ -371,7 +371,7 @@ def build(data, d_from, d_to, path):
 
     # Daywise: Final Sales - Return Total, by date x unit
     d = wb.create_sheet("Daywise")
-    d["A1"] = "Daywise VetBuddy sales (Final Sales - Return Total) - use for the VETBUDDY column of the POS report"
+    d["A1"] = "Daywise Net Final Sales (Final Sales - Return Total) - feeds the VETBUDDY column of the POS report"
     d["A1"].font = Font(name="Arial", bold=True, size=11)
     units = list(data)
     head(d, 3, ["Date"] + units + ["TOTAL"])
@@ -402,7 +402,11 @@ def build(data, d_from, d_to, path):
         if not headers:
             w["A1"] = "No data for this period"
             continue
-        head(w, 1, headers)
+        cols = headers + ["Net Final Sales"]
+        head(w, 1, cols)
+        fs = get_column_letter(headers.index("Final Sales") + 1)
+        rt = get_column_letter(headers.index("Return Total") + 1) if "Return Total" in headers else None
+        nc = len(cols)
         for i, x in enumerate(rows, 2):
             for c, h in enumerate(headers, 1):
                 v = x.get(h)
@@ -411,9 +415,18 @@ def build(data, d_from, d_to, path):
                 elif isinstance(v, float) and v.is_integer():
                     v = int(v)
                 w.cell(i, c, v).font = BODY
+            x2 = w.cell(i, nc, f"={fs}{i}-{rt}{i}" if rt else f"={fs}{i}")
+            x2.font, x2.number_format = BOLD, INR
+        t = len(rows) + 2
+        w.cell(t, 1, "TOTAL").font = BOLD
+        for h in ("Final Sales", "Return Total", "Net Final Sales"):
+            if h in cols:
+                L = get_column_letter(cols.index(h) + 1)
+                x2 = w.cell(t, cols.index(h) + 1, f"=SUM({L}2:{L}{t - 1})")
+                x2.font, x2.number_format = BOLD, INR
         w.freeze_panes = "B2"
-        w.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{len(rows) + 1}"
-        for c in range(1, len(headers) + 1):
+        w.auto_filter.ref = f"A1:{get_column_letter(nc)}{len(rows) + 1}"
+        for c in range(1, nc + 1):
             w.column_dimensions[get_column_letter(c)].width = 14
     wb.save(path)
 
@@ -542,10 +555,10 @@ def main():
                 v = days.setdefault(day, [0.0, 0.0, 0.0])
                 v[0] += to_num(x.get("Net Sales")); v[1] += to_num(x.get("Final Sales")); v[2] += to_num(x.get("Return Total"))
         tot = [sum(v[i] for v in days.values()) for i in range(3)]
-        log(f"  {len(rows)} line items | Net Sales {tot[0]:,.0f} | Final Sales {tot[1]:,.0f} | Returns {tot[2]:,.0f}")
+        log(f"  {len(rows)} line items | Final Sales {tot[1]:,.2f} - Return Total {tot[2]:,.2f} = Net Final Sales {tot[1]-tot[2]:,.2f}")
         for day in sorted(days)[:3]:
             v = days[day]
-            log(f"    {day:%d-%m}: Net Sales {v[0]:,.2f} | Final Sales {v[1]:,.2f} | Returns {v[2]:,.2f}")
+            log(f"    {day:%d-%m}: Final Sales {v[1]:,.2f} - Return Total {v[2]:,.2f} = Net Final Sales {v[1]-v[2]:,.2f}")
         data[unit] = (headers, rows)
 
     path = OUT / f"VetBuddy_GoodsServices_MTD_{d_to:%Y-%m-%d}.xlsx"

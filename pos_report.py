@@ -53,8 +53,8 @@ def build_template(month, units):
             ws.column_dimensions[L(c)].width = WIDTHS[c - 1]
         ws["B1"].font = Font(name="Arial", bold=True, color="FFFFFF", size=26)
         ws.row_dimensions[1].height = 40; ws.row_dimensions[2].height = 58
-        ws["B2"].comment = Comment("Filled automatically every morning from VetBuddy "
-                                   "(Final Sales - Return Total).", "Finance Automation")
+        ws["B2"].comment = Comment("Filled automatically every morning from VetBuddy: "
+                                   "Net Final Sales = Final Sales - Return Total.", "Finance Automation")
         ws["P2"].comment = Comment("Carried-over variance from earlier periods; explain in Remark.",
                                    "Finance Automation")
         for i, d in enumerate(days):
