@@ -120,7 +120,13 @@ class VetBuddy:
             log("Logged in to VetBuddy")
             return
         page = self._text(r.text)
-        log("After sign-in VetBuddy showed:", r.url, "|", page[:400])
+        log("After sign-in VetBuddy showed:", r.status_code, r.url, f"len={len(r.text)}",
+            "cookies=" + ",".join(self.s.cookies.keys()), "|", page[:300])
+        raw = re.sub(r"\s+", " ", r.text)
+        for m in re.findall(r"(?:alert|showlang_alert)\([^)]{0,200}\)|location[^;]{0,150}", raw)[:8]:
+            log("   page script:", m)
+        if len(r.text) < 3000:
+            log("   raw:", raw[:1500].replace(self.pwd, "***"))
         # VetBuddy may refuse a second session for the same user ("logged in on another device")
         if re.search(r"another device|other device|already logged|logoutfromdevice", r.text, re.I):
             log("Account is signed in elsewhere - closing the other session and retrying")
