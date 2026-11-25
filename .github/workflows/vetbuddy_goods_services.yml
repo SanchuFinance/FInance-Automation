@@ -36,7 +36,10 @@ jobs:
           GF_URL: ${{ secrets.GF_URL }}
           GF_USER: ${{ secrets.GF_USER }}
           GF_PASS: ${{ secrets.GF_PASS }}
-        run: python gofrugal_discover.py
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+          python gofrugal_discover.py
       - name: Download report and build workbook
         if: ${{ !inputs.gofrugal_discover }}
         env:
