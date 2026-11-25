@@ -2,7 +2,10 @@
 Secrets are never printed (login request bodies are skipped)."""
 import os, re, json, asyncio
 from playwright.async_api import async_playwright
-BASE = (os.environ.get("GF_URL") or "https://sanchuhq.gofrugal.com/RayMedi_HQ/").split("/RayMedi_HQ")[0] + "/RayMedi_HQ/"
+_m = re.search(r"https?://[A-Za-z0-9.\-]+", os.environ.get("GF_URL") or "")
+HOST = _m.group(0).replace("http://", "https://") if _m else "https://sanchuhq.gofrugal.com"
+BASE = HOST + "/RayMedi_HQ/"
+print("GF_URL secret looks valid:", bool(_m))
 SKIP = re.compile(r"\.(js|css|png|jpg|svg|woff2?|ttf|ico|gif)(\?|$)")
 
 async def main():
