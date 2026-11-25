@@ -258,6 +258,47 @@ class VetBuddy:
         raise RuntimeError(f"Could not download report for clinic {clinic_id}")
 
 
+    def snapshot(self, clinic_id, day):
+        """Business Intelligence > Financial Snapshot for one clinic and one day.
+        Returns {advance_received, advance_adjusted, credit_sales, credit_closure}."""
+        d = day.strftime("%m/%d/%Y")
+        for attempt in range(3):
+            try:
+                r = self.s.get(self.base + "/sanchu/clinic_view.php", timeout=120, params={
+                    "cmdsearch": "true", "txtstartdate": d, "txtenddate": d, "selclinic": clinic_id})
+                r.raise_for_status()
+                return parse_snapshot(r.text)
+            except Exception as e:
+                log(f"  snapshot {clinic_id} {day} attempt {attempt + 1} failed: {e}")
+                time.sleep(5 * (attempt + 1))
+        raise RuntimeError(f"Financial Snapshot failed for clinic {clinic_id} on {day}")
+
+
+def _cell_num(html):
+    t = re.sub(r"<[^>]+>|&nbsp;", " ", html)
+    m = re.search(r"-?[\d,]+(?:\.\d+)?", t)
+    return float(m.group(0).replace(",", "")) if m else 0.0
+
+
+def parse_snapshot(html):
+    h = re.sub(r"\s+", " ", html)
+    # Normal Payment | Credits Applied | Due  (row right after the header that ends with 'Due')
+    m = re.search(r"Due</span>.*?</tr>\s*<tr>(.*?)</tr>", h, re.I)
+    if not m:
+        raise RuntimeError("Financial Snapshot: 'Credits Applied / Due' table not found")
+    cells = re.findall(r"<td[^>]*>(.*?)</td>", m.group(1), re.I)
+    if len(cells) < 3:
+        raise RuntimeError("Financial Snapshot: payment row has fewer than 3 cells")
+    before = re.search(r"invoice created before</span>.*?<td[^>]*>(.*?)</td>", h, re.I)
+    adv = re.search(r">Advance Amount</span>\s*</td>\s*<td[^>]*>(.*?)</td>", h, re.I)
+    if not before or not adv:
+        raise RuntimeError("Financial Snapshot: 'payment against older invoices' or 'Advance Amount' not found")
+    return {"advance_received": _cell_num(adv.group(1)),
+            "advance_adjusted": _cell_num(cells[1]),
+            "credit_sales": _cell_num(cells[2]),
+            "credit_closure": _cell_num(before.group(1))}
+
+
 # ----------------------------------------------------------------- parsing
 def to_num(v):
     if v in (None, ""):
@@ -333,7 +374,7 @@ def head(ws, row, values):
         x.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 
-def build(data, d_from, d_to, path, gf=None):
+def build(data, d_from, d_to, path, gf=None, snap=None):
     wb = Workbook()
     s = wb.active
     s.title = "Summary"
@@ -404,6 +445,9 @@ def build(data, d_from, d_to, path, gf=None):
     pos_report.fill_vetbuddy(wb, agg, titles)
     if gf:
         pos_report.fill_vetbuddy(wb, gf, titles, col=3)
+    for field, col in pos_report.SNAPSHOT_COLS.items():
+        if snap and field in snap:
+            pos_report.fill_vetbuddy(wb, snap[field], titles, col=col)
 
     # Raw data per unit
     for unit, (headers, rows) in data.items():
@@ -505,7 +549,7 @@ def daywise_totals(data):
     return agg
 
 
-def update_pos(sp, data, d_from, d_to, gf=None):
+def update_pos(sp, data, d_from, d_to, gf=None, snap=None):
     """Fill the VETBUDDY column of the month's POS report (kept on SharePoint)."""
     import pos_report
     from openpyxl import load_workbook
@@ -523,6 +567,10 @@ def update_pos(sp, data, d_from, d_to, gf=None):
     log(f"POS report: VETBUDDY filled for {n} unit-days")
     if gf:
         log(f"POS report: GOFRUGAL filled for {pos_report.fill_vetbuddy(wb, gf, col=3)} unit-days")
+    for field, col in pos_report.SNAPSHOT_COLS.items():
+        if snap and field in snap:
+            n2 = pos_report.fill_vetbuddy(wb, snap[field], col=col)
+            log(f"POS report: {pos_report.HEADS[col - 1]} filled for {n2} unit-days")
     wb.calculation.fullCalcOnLoad = True      # Excel recalculates formulas when opened
     path = OUT / name
     wb.save(path)
@@ -572,6 +620,17 @@ def main():
             log(f"    {day:%d-%m}: Final Sales {v[1]:,.2f} - Return Total {v[2]:,.2f} = Net Final Sales {v[1]-v[2]:,.2f}")
         data[unit] = (headers, rows)
 
+    snap = {}            # field -> {(date, unit): value}
+    for unit, cid in UNITS.items():
+        day = d_from
+        while day <= d_to:
+            v = vb.snapshot(cid, day)
+            for k, val in v.items():
+                snap.setdefault(k, {})[(day, unit)] = val
+            day += dt.timedelta(days=1)
+        tot = {k: sum(x for (dd, u), x in snap[k].items() if u == unit) for k in snap}
+        log(f"Financial Snapshot {unit}: " + " | ".join(f"{k} {v:,.2f}" for k, v in tot.items()))
+
     gf, gf_error = None, None
     if os.environ.get("GF_USER") and os.environ.get("GF_PASS"):
         try:
@@ -584,7 +643,7 @@ def main():
         log("GF_USER / GF_PASS not set - skipping Gofrugal")
 
     path = OUT / f"VetBuddy_GoodsServices_MTD_{d_to:%Y-%m-%d}.xlsx"
-    build(data, d_from, d_to, path, gf)
+    build(data, d_from, d_to, path, gf, snap)
     log("Saved", path)
     sp, sp_error = None, None
     if not args.no_upload:
@@ -598,7 +657,7 @@ def main():
             sp_error, sp = e, None
             log("SharePoint FAILED:", e)
     if d_from.month == d_to.month:
-        update_pos(sp, data, d_from, d_to, gf)
+        update_pos(sp, data, d_from, d_to, gf, snap)
     if gf_error:
         raise RuntimeError(f"VetBuddy done, but Gofrugal failed: {gf_error}")
     if sp_error:
