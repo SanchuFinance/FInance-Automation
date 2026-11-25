@@ -182,9 +182,24 @@ class VetBuddy:
         # fallback: the menu switch VetBuddy itself uses
         self.s.get(self.base + "/sanchu/business_menu.php", params={"changesesseionclinic": UNITS["Adyar"]}, timeout=60)
 
+    def _bi_autologin(self):
+        """Same as clicking Business Intelligence: VetBuddy returns 'true~<autologin url>'
+        which opens a session in the /sanchu/ (PHP) reports app."""
+        r = self.s.get(self.base + "/n_inc_line_clinicname_responsive.html",
+                       params={"calledforapplogin": "true", "is_bi": "true",
+                               "_": str(int(time.time() * 1000))}, timeout=60)
+        if "true~" not in r.text:
+            log("   BI auto-login link not returned:", self._text(r.text)[:200])
+            return
+        url = r.text.split("true~", 1)[1].split("~")[0].strip()
+        url = urllib.parse.urljoin(self.base + "/", url)
+        res = self.s.post(url, timeout=60)
+        log("   opened Business Intelligence session ->", urllib.parse.urlsplit(res.url).path)
+
     def login(self):
         r = self._post_login()
         self._clinic_selection(r)
+        self._bi_autologin()
         if self._report_page_ok():
             log("Logged in to VetBuddy")
             return
@@ -204,6 +219,7 @@ class VetBuddy:
             self.s.cookies.set("seed", str(int(time.time() * 1000)))
             r = self._post_login()
             self._clinic_selection(r)
+            self._bi_autologin()
             if self._report_page_ok():
                 log("Logged in to VetBuddy")
                 return
