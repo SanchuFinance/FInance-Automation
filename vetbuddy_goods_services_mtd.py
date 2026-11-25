@@ -13,7 +13,8 @@ What it does
   3. Builds one workbook:
         Summary      - MTD totals per unit (Total Sales, Discount, Net Sales, Tax, Final Sales, Returns, Net)
         Daywise      - Final Sales net of returns, date x unit (feeds the VETBUDDY column of the POS report)
-        <Unit> sheets- the full line-item data for each unit
+        <Unit>       - one sheet per unit in the POS template (date-wise), VETBUDDY = Net Final Sales
+        <Unit> Data  - the full line-item data for each unit
   4. Optional: uploads it to SharePoint (Finance Hub) if the SP_* settings are present.
   5. Fills the VETBUDDY column of the month's unit-wise POS report
      (Finance Hub / POS Report / POS_Report_Unitwise_<Mon_YYYY>.xlsx), creating it on the
@@ -396,9 +397,15 @@ def build(data, d_from, d_to, path):
         d.column_dimensions[get_column_letter(c)].width = 15
     d.freeze_panes = "B4"
 
+    # Per-unit sheets in the POS template layout (date-wise), VETBUDDY = Net Final Sales
+    import pos_report
+    tdays = [d_from + dt.timedelta(n) for n in range((d_to - d_from).days + 1)]
+    titles = pos_report.add_unit_sheets(wb, d_from.replace(day=1), list(data), days=tdays)
+    pos_report.fill_vetbuddy(wb, agg, titles)
+
     # Raw data per unit
     for unit, (headers, rows) in data.items():
-        w = wb.create_sheet(unit[:31])
+        w = wb.create_sheet(f"{unit} Data"[:31])
         if not headers:
             w["A1"] = "No data for this period"
             continue
