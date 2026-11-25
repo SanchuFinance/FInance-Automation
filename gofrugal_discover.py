@@ -29,8 +29,12 @@ async def main():
         pw = page.locator("input[name=j_password]:visible").first
         await pw.fill(os.environ["GF_PASS"])
         await pw.press("Enter")
-        await page.wait_for_timeout(25000)
+        await page.wait_for_timeout(15000)
         print("URL after login:", page.url)
+        log.clear()
+        await page.goto(BASE + "mainIndex.do?page=%2Fsmartreport%2Findex.html%23%2Freports%3FreportId%3D3123%26productId%3D4", wait_until="domcontentloaded", timeout=120000)
+        await page.wait_for_timeout(30000)
+        print("URL report:", page.url)
         for f in page.frames: print("frame:", f.url[:200])
         await page.screenshot(path="output/gf_1.png", full_page=True)
         # dump visible text of the report frame
