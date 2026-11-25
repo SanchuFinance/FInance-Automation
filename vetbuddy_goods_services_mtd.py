@@ -114,8 +114,65 @@ class VetBuddy:
                    params={"calledfromlogin": "true", "viewport": "1920|1080"}, timeout=60)
         return r
 
+    def _forms(self, html):
+        out = []
+        for fm in re.finditer(r"(?is)<form\b([^>]*)>(.*?)</form>", html):
+            attrs, body = fm.groups()
+            act = re.search(r'action\s*=\s*["\']?([^"\' >]+)', attrs, re.I)
+            fields = {}
+            for inp in re.finditer(r"(?is)<input\b[^>]*>", body):
+                t = inp.group(0)
+                n = re.search(r'name\s*=\s*["\']?([^"\' >]+)', t, re.I)
+                v = re.search(r'value\s*=\s*["\']([^"\']*)', t, re.I)
+                ty = re.search(r'type\s*=\s*["\']?(\w+)', t, re.I)
+                if n and (not ty or ty.group(1).lower() not in ("submit", "button", "checkbox", "radio")):
+                    fields[n.group(1)] = v.group(1) if v else ""
+            selects = {}
+            for sel in re.finditer(r"(?is)<select\b([^>]*)>(.*?)</select>", body):
+                n = re.search(r'name\s*=\s*["\']?([^"\' >]+)', sel.group(1), re.I)
+                opts = re.findall(r'(?is)<option[^>]*value\s*=\s*["\']?([^"\' >]*)["\']?[^>]*>(.*?)</option>', sel.group(2))
+                if n:
+                    selects[n.group(1)] = [(a, self._text(b)) for a, b in opts]
+            buttons = re.findall(r'(?is)<(?:input|button)\b[^>]*type\s*=\s*["\']?submit[^>]*>', body)
+            out.append({"action": act.group(1) if act else "", "fields": fields,
+                        "selects": selects, "buttons": buttons})
+        return out
+
+    def _clinic_selection(self, r):
+        """After sign-in VetBuddy redirects (META refresh) to user_clinic_selection.html."""
+        m = re.search(r'(?i)URL=([^"\'>]+)', r.text)
+        if not m:
+            return
+        url = urllib.parse.urljoin(r.url, m.group(1).strip())
+        page = self.s.get(url, timeout=60, headers={"Referer": r.url})
+        log("Clinic selection page:", page.url, f"len={len(page.text)}")
+        forms = self._forms(page.text)
+        for f in forms:
+            log("   form:", f["action"], "fields:", list(f["fields"]),
+                "selects:", {k: v[:10] for k, v in f["selects"].items()}, "buttons:", f["buttons"][:3])
+        links = re.findall(r'(?is)(?:href|onclick)\s*=\s*["\']([^"\']*(?:clinic|whiteboard|menu)[^"\']*)', page.text)
+        for l in links[:15]:
+            log("   link:", l[:200])
+        for f in forms:
+            if f["selects"] and f["action"]:
+                data = dict(f["fields"])
+                for k, opts in f["selects"].items():
+                    vals = [v for v, _ in opts if v and v.lower() not in ("0", "all")]
+                    data[k] = UNITS.get("Adyar") if UNITS.get("Adyar") in vals else (vals[0] if vals else "")
+                btn = re.search(r'name\s*=\s*["\']?([^"\' >]+)', f["buttons"][0]) if f["buttons"] else None
+                if btn:
+                    v = re.search(r'value\s*=\s*["\']([^"\']*)', f["buttons"][0])
+                    data[btn.group(1)] = v.group(1) if v else "true"
+                res = self.s.post(urllib.parse.urljoin(page.url, f["action"]), data=data, timeout=60,
+                                  headers={"Referer": page.url})
+                log("   submitted clinic selection ->", res.url, f"len={len(res.text)}")
+                return
+        # fallback: the menu switch VetBuddy itself uses
+        self.s.get(self.base + "/sanchu/business_menu.php", params={"changesesseionclinic": UNITS["Adyar"]}, timeout=60)
+
     def login(self):
         r = self._post_login()
+        self._clinic_selection(r)
         if self._report_page_ok():
             log("Logged in to VetBuddy")
             return
@@ -134,6 +191,7 @@ class VetBuddy:
                        params={"logoutfromdevice": "true", "uid": ""}, timeout=60)
             self.s.cookies.set("seed", str(int(time.time() * 1000)))
             r = self._post_login()
+            self._clinic_selection(r)
             if self._report_page_ok():
                 log("Logged in to VetBuddy")
                 return
