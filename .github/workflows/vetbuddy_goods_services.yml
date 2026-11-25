@@ -39,7 +39,7 @@ jobs:
         run: |
           pip install playwright
           python -m playwright install --with-deps chromium
-          python gofrugal.py 2026-11-01 2026-11-02
+          python gofrugal.py 2026-11-01 2026-11-24 | grep -v "^2026-"
       - name: Download report and build workbook
         if: ${{ !inputs.gofrugal_discover }}
         env:

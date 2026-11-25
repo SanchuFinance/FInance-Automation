@@ -15,8 +15,8 @@ import asyncio, datetime as dt, json, os, re
 HOST_DEFAULT = "https://sanchuhq.gofrugal.com"
 SALES_REPORT, RETURN_REPORT = 3123, 3126
 SALES_VALUE_COL = "Item Net Amt"
-RETURN_VALUE_COLS = ["Item Net Amt", "Return Net Amt", "Net Amt", "Net Amount", "Return Amount", "Total Amount", "Amount"]
-DATE_COLS = ["Bill Dt.", "Return Dt.", "Return Date", "Bill Date", "Date", "Tran Date", "SR Date"]
+RETURN_VALUE_COLS = ["Item Net Amount", "Item Net Amt", "Return Net Amt", "Net Amt", "Net Amount", "Return Amount", "Total Amount", "Amount"]
+DATE_COLS = ["Bill Dt.", "SR Dt.", "Return Dt", "Sales Return Date", "SR Date.", "Ret Dt.", "Bill Dt", "Date.", "Return Dt.", "Return Date", "Bill Date", "Date", "Tran Date", "SR Date"]
 OUTLET_COL = "Outlet Name"
 
 # Gofrugal outlet name -> POS unit. Outlets not listed are reported in the log and left out.
