@@ -153,6 +153,18 @@ class VetBuddy:
         links = re.findall(r'(?is)(?:href|onclick)\s*=\s*["\']([^"\']*(?:clinic|whiteboard|menu)[^"\']*)', page.text)
         for l in links[:15]:
             log("   link:", l[:200])
+        ids = re.findall(r"user_clinic_selection\.html\?selectedclinicid=(\d+)", page.text)
+        if ids:
+            cid = UNITS["Adyar"] if UNITS["Adyar"] in ids else ids[0]
+            res = self.s.get(self.base + "/user_clinic_selection.html",
+                             params={"selectedclinicid": cid}, timeout=60, headers={"Referer": page.url})
+            for _ in range(3):                       # follow META refresh hops
+                m2 = re.search(r'(?i)http-equiv=["\']?refresh[^>]*URL=([^"\'>]+)', res.text)
+                if not m2:
+                    break
+                res = self.s.get(urllib.parse.urljoin(res.url, m2.group(1).strip()), timeout=60)
+            log(f"   selected clinic {cid} ->", res.url)
+            return
         for f in forms:
             if f["selects"] and f["action"]:
                 data = dict(f["fields"])
