@@ -1,28 +1,26 @@
-"""One-off: log in to Gofrugal HQ and list how Smart Report fetches report data (no secrets printed)."""
-import os, re, sys, requests, urllib.parse
+"""One-off: log in to Gofrugal HQ and find how HQ opens Smart Report (no secrets printed)."""
+import os, re, requests
 base = (os.environ.get("GF_URL") or "https://sanchuhq.gofrugal.com/RayMedi_HQ/").split("/RayMedi_HQ")[0] + "/RayMedi_HQ/"
+root = base.split("/RayMedi_HQ")[0]
 s = requests.Session(); s.headers["User-Agent"] = "Mozilla/5.0 Chrome/124"
 s.get(base + "mainIndex.do", timeout=60)
 r = s.post(base + "j_security_check", data={"j_username": os.environ["GF_USER"], "j_password": os.environ["GF_PASS"]}, timeout=60)
-print("login ->", r.status_code, r.url, "len", len(r.text), "cookies", list(s.cookies.keys()))
-print("login page title:", re.findall(r"<title>(.*?)</title>", r.text, re.S)[:1], "| error?", bool(re.search(r"invalid|incorrect", r.text, re.I)))
-root = base.split("/RayMedi_HQ")[0]
-for cand in (root + "/smartreport/index.html", base + "mainIndex.do?page=%2Fsmartreport%2Findex.html"):
-    h = s.get(cand, timeout=60)
-    print("try", cand, h.status_code, len(h.text), re.findall(r"<title>(.*?)</title>", h.text, re.S)[:1])
-    if h.ok and ".js" in h.text and len(h.text) > 500:
-        break
-for m in re.findall(r'(?:src|href)=["\']([^"\']+)', h.text)[:40]: print("  ref", m)
-for m in re.findall(r'(?i)<iframe[^>]+', h.text)[:5]: print("  iframe", m[:200])
-print("smartreport:", h.status_code, h.url, len(h.text))
-scripts = re.findall(r'src=["\']([^"\']+\.js[^"\']*)', h.text)
-print("scripts:", scripts)
-pat = re.compile(r'["\'`]([A-Za-z0-9_/\.\-]{3,80})["\'`]')
-for sc in scripts:
-    u = urllib.parse.urljoin(h.url, sc)
+print("login ->", r.status_code, r.url, list(s.cookies.keys()))
+m = s.get(base + "mainIndex.do", params={"page": "/smartreport/index.html#/reports?reportId=3123&productId=4"}, timeout=60)
+print("mainIndex", m.status_code, len(m.text))
+for x in re.findall(r'src=["\']([^"\']+)', m.text): print("  src", x)
+def ctx(t, words, n=40, w=300):
+    out, last = [], -1
+    for mm in re.finditer(words, t):
+        if mm.start() < last: continue
+        out.append(re.sub(r"\s+", " ", t[max(0, mm.start()-w): mm.start()+w])); last = mm.start()+w
+        if len(out) >= n: break
+    return out
+for js in re.findall(r'src=["\']([^"\']+\.js[^"\']*)', m.text):
+    u = js if js.startswith("http") else (root + js if js.startswith("/") else base + js)
     t = s.get(u, timeout=60).text
-    hits = sorted({m for m in pat.findall(t) if re.search(r"report|Report|export|Export|download|excel|Excel|\.do$|api/|filter|Filter|outlet|Outlet", m)})
-    print(f"\n== {sc} ({len(t)} bytes) {len(hits)} hits")
-    for x in hits[:150]: print("  ", x)
-    for m in re.finditer(r"(\.(?:post|get)\(\s*[^,)]{0,120})", t):
-        print("  CALL", m.group(1)[:160])
+    hits = ctx(t, r"smartreport|smartReport|SmartReport|reportsApi|WebReporter|sso|Sso|token=|Token")
+    print(f"\n==== {js} {len(t)} bytes, {len(hits)} contexts")
+    for h in hits: print("  ..", h[:600])
+for p in ("rest/hq/product-type", "rest/hq/smartreport", "rest/hq/sr-token", "rest/hq/user"):
+    x = s.get(base + p, timeout=60); print("GET", p, x.status_code, x.text[:300].replace("\n", " "))
