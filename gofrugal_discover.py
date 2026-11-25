@@ -20,7 +20,8 @@ async def main():
             except Exception: txt = "<binary>"
             log.append((req.method, u, r.status, body, r.headers.get("content-type", ""), txt))
         ctx.on("response", lambda r: asyncio.ensure_future(on_resp(r)))
-        await page.goto(BASE + "mainIndex.do?page=%2Fsmartreport%2Findex.html%23%2Freports%3FreportId%3D3123%26productId%3D4")
+        await page.goto(BASE + "mainIndex.do?page=%2Fsmartreport%2Findex.html%23%2Freports%3FreportId%3D3123%26productId%3D4", wait_until="domcontentloaded", timeout=120000)
+        await page.wait_for_selector("input[name=j_username]", timeout=120000)
         await page.fill("input[name=j_username]", os.environ["GF_USER"])
         await page.fill("input[name=j_password]", os.environ["GF_PASS"])
         await page.locator("button[type=submit]").first.click()
