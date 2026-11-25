@@ -39,7 +39,7 @@ jobs:
         run: |
           pip install playwright
           python -m playwright install --with-deps chromium
-          python gofrugal_discover.py
+          python gofrugal.py 2026-11-01 2026-11-02
       - name: Download report and build workbook
         if: ${{ !inputs.gofrugal_discover }}
         env:
