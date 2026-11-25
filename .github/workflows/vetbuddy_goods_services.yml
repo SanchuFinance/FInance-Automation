@@ -1,0 +1,50 @@
+name: VetBuddy Goods & Services MTD
+
+on:
+  schedule:
+    - cron: "43 2 * * *"        # 8:13 AM IST every day
+  workflow_dispatch:
+    inputs:
+      date_from:
+        description: "From date (YYYY-MM-DD) - leave blank for month start"
+        required: false
+      date_to:
+        description: "To date (YYYY-MM-DD) - leave blank for yesterday"
+        required: false
+      no_upload:
+        description: "Skip SharePoint upload"
+        type: boolean
+        default: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Download report and build workbook
+        env:
+          TZ: Asia/Kolkata
+          VB_USER: ${{ secrets.VB_USER }}
+          VB_PASS: ${{ secrets.VB_PASS }}
+          SP_TENANT_ID: ${{ secrets.SP_TENANT_ID }}
+          SP_CLIENT_ID: ${{ secrets.SP_CLIENT_ID }}
+          SP_CLIENT_SECRET: ${{ secrets.SP_CLIENT_SECRET }}
+        run: |
+          ARGS=""
+          if [ -n "${{ inputs.date_from }}" ] && [ -n "${{ inputs.date_to }}" ]; then
+            ARGS="--from ${{ inputs.date_from }} --to ${{ inputs.date_to }}"
+          fi
+          if [ "${{ inputs.no_upload }}" = "true" ]; then ARGS="$ARGS --no-upload"; fi
+          python vetbuddy_goods_services_mtd.py $ARGS
+      - name: Keep the Excel file as a download
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goods-services-mtd
+          path: output/*.xlsx
+          retention-days: 14
