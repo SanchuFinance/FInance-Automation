@@ -44,8 +44,31 @@ async def main():
                 print("SMARTREPORT TEXT:", re.sub(r"\s+", " ", t)[:2500])
                 btns = await f.evaluate("[...document.querySelectorAll('button,a,[title]')].map(e=>(e.innerText||e.title||'').trim()).filter(Boolean).slice(0,120)")
                 print("BUTTONS:", btns)
-        await page.wait_for_timeout(5000)
+        fr = next(f for f in page.frames if "smartreport/index.html" in f.url)
+        log.clear()
+        await fr.get_by_text("Apply", exact=True).first.click()
+        await page.wait_for_timeout(25000)
+        t = await fr.evaluate("document.body.innerText")
+        print("AFTER APPLY TEXT:", re.sub(r"\s+", " ", t)[:2000])
+        print("\n==== NETWORK (Apply) ====")
+        for m, u, st, body, ct, txt in log:
+            print(f"{m} {st} {u[:300]}\n   body={body}\n   resp={re.sub(chr(10),' ',txt)[:1200]}")
+        log.clear()
+        try:
+            async with page.expect_download(timeout=90000) as dl:
+                await fr.get_by_text("Export as CSV", exact=True).first.click()
+            d = await dl.value
+            path = "output/" + d.suggested_filename
+            await d.save_as(path)
+            print("DOWNLOADED:", d.suggested_filename, os.path.getsize(path))
+            print(open(path, encoding="utf-8", errors="replace").read()[:1500])
+        except Exception as e:
+            print("EXPORT:", e)
+        print("\n==== NETWORK (Export) ====")
+        for m, u, st, body, ct, txt in log:
+            print(f"{m} {st} {u[:300]}\n   body={body}\n   resp={re.sub(chr(10),' ',txt)[:600]}")
         await b.close()
+        return
         print("\n==== NETWORK ====")
         for m, u, st, body, ct, txt in log:
             print(f"{m} {st} {u[:300]}\n   ct={ct}\n   body={body}\n   resp={re.sub(chr(10),' ',txt)[:600]}")
