@@ -6,7 +6,14 @@ s.get(base + "mainIndex.do", timeout=60)
 r = s.post(base + "j_security_check", data={"j_username": os.environ["GF_USER"], "j_password": os.environ["GF_PASS"]}, timeout=60)
 print("login ->", r.status_code, r.url, "len", len(r.text), "cookies", list(s.cookies.keys()))
 print("login page title:", re.findall(r"<title>(.*?)</title>", r.text, re.S)[:1], "| error?", bool(re.search(r"invalid|incorrect", r.text, re.I)))
-h = s.get(base + "smartreport/index.html", timeout=60)
+root = base.split("/RayMedi_HQ")[0]
+for cand in (root + "/smartreport/index.html", base + "mainIndex.do?page=%2Fsmartreport%2Findex.html"):
+    h = s.get(cand, timeout=60)
+    print("try", cand, h.status_code, len(h.text), re.findall(r"<title>(.*?)</title>", h.text, re.S)[:1])
+    if h.ok and ".js" in h.text and len(h.text) > 500:
+        break
+for m in re.findall(r'(?:src|href)=["\']([^"\']+)', h.text)[:40]: print("  ref", m)
+for m in re.findall(r'(?i)<iframe[^>]+', h.text)[:5]: print("  iframe", m[:200])
 print("smartreport:", h.status_code, h.url, len(h.text))
 scripts = re.findall(r'src=["\']([^"\']+\.js[^"\']*)', h.text)
 print("scripts:", scripts)
