@@ -475,7 +475,17 @@ def main():
         raw = vb.download(cid, d_from, d_to)
         (OUT / f"raw_{unit.replace(' ', '_')}.xls").write_bytes(raw)
         headers, rows = parse_xls(raw)
-        log(f"  {len(rows)} line items")
+        days = {}
+        for x in rows:
+            day = parse_date(x.get("Date"))
+            if day:
+                v = days.setdefault(day, [0.0, 0.0, 0.0])
+                v[0] += to_num(x.get("Net Sales")); v[1] += to_num(x.get("Final Sales")); v[2] += to_num(x.get("Return Total"))
+        tot = [sum(v[i] for v in days.values()) for i in range(3)]
+        log(f"  {len(rows)} line items | Net Sales {tot[0]:,.0f} | Final Sales {tot[1]:,.0f} | Returns {tot[2]:,.0f}")
+        for day in sorted(days)[:3]:
+            v = days[day]
+            log(f"    {day:%d-%m}: Net Sales {v[0]:,.2f} | Final Sales {v[1]:,.2f} | Returns {v[2]:,.2f}")
         data[unit] = (headers, rows)
 
     path = OUT / f"VetBuddy_GoodsServices_MTD_{d_to:%Y-%m-%d}.xlsx"
