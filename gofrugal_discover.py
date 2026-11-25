@@ -25,9 +25,10 @@ async def main():
         ctx.on("response", lambda r: asyncio.ensure_future(on_resp(r)))
         await page.goto(BASE + "mainIndex.do?page=%2Fsmartreport%2Findex.html%23%2Freports%3FreportId%3D3123%26productId%3D4", wait_until="domcontentloaded", timeout=120000)
         await page.wait_for_selector("input[name=j_username]", timeout=120000)
-        await page.fill("input[name=j_username]", os.environ["GF_USER"])
-        await page.fill("input[name=j_password]", os.environ["GF_PASS"])
-        await page.locator("button[type=submit]").first.click()
+        await page.locator("input[name=j_username]:visible").first.fill(os.environ["GF_USER"])
+        pw = page.locator("input[name=j_password]:visible").first
+        await pw.fill(os.environ["GF_PASS"])
+        await pw.press("Enter")
         await page.wait_for_timeout(25000)
         print("URL after login:", page.url)
         for f in page.frames: print("frame:", f.url[:200])
