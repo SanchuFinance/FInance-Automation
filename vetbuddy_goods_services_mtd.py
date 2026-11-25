@@ -333,7 +333,7 @@ def head(ws, row, values):
         x.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 
-def build(data, d_from, d_to, path):
+def build(data, d_from, d_to, path, gf=None):
     wb = Workbook()
     s = wb.active
     s.title = "Summary"
@@ -402,6 +402,8 @@ def build(data, d_from, d_to, path):
     tdays = [d_from + dt.timedelta(n) for n in range((d_to - d_from).days + 1)]
     titles = pos_report.add_unit_sheets(wb, d_from.replace(day=1), list(data), days=tdays)
     pos_report.fill_vetbuddy(wb, agg, titles)
+    if gf:
+        pos_report.fill_vetbuddy(wb, gf, titles, col=3)
 
     # Raw data per unit
     for unit, (headers, rows) in data.items():
@@ -503,7 +505,7 @@ def daywise_totals(data):
     return agg
 
 
-def update_pos(sp, data, d_from, d_to):
+def update_pos(sp, data, d_from, d_to, gf=None):
     """Fill the VETBUDDY column of the month's POS report (kept on SharePoint)."""
     import pos_report
     from openpyxl import load_workbook
@@ -519,6 +521,8 @@ def update_pos(sp, data, d_from, d_to):
         log("POS report: creating new", name)
     n = pos_report.fill_vetbuddy(wb, daywise_totals(data))
     log(f"POS report: VETBUDDY filled for {n} unit-days")
+    if gf:
+        log(f"POS report: GOFRUGAL filled for {pos_report.fill_vetbuddy(wb, gf, col=3)} unit-days")
     wb.calculation.fullCalcOnLoad = True      # Excel recalculates formulas when opened
     path = OUT / name
     wb.save(path)
@@ -568,8 +572,19 @@ def main():
             log(f"    {day:%d-%m}: Final Sales {v[1]:,.2f} - Return Total {v[2]:,.2f} = Net Final Sales {v[1]-v[2]:,.2f}")
         data[unit] = (headers, rows)
 
+    gf, gf_error = None, None
+    if os.environ.get("GF_USER") and os.environ.get("GF_PASS"):
+        try:
+            import gofrugal
+            gf, _ = gofrugal.daywise(d_from, d_to)
+        except Exception as e:
+            gf_error = e
+            log("Gofrugal FAILED:", e)
+    else:
+        log("GF_USER / GF_PASS not set - skipping Gofrugal")
+
     path = OUT / f"VetBuddy_GoodsServices_MTD_{d_to:%Y-%m-%d}.xlsx"
-    build(data, d_from, d_to, path)
+    build(data, d_from, d_to, path, gf)
     log("Saved", path)
     sp, sp_error = None, None
     if not args.no_upload:
@@ -583,7 +598,9 @@ def main():
             sp_error, sp = e, None
             log("SharePoint FAILED:", e)
     if d_from.month == d_to.month:
-        update_pos(sp, data, d_from, d_to)
+        update_pos(sp, data, d_from, d_to, gf)
+    if gf_error:
+        raise RuntimeError(f"VetBuddy done, but Gofrugal failed: {gf_error}")
     if sp_error:
         raise RuntimeError(f"Files built (see run artifacts) but SharePoint failed: {sp_error}")
 

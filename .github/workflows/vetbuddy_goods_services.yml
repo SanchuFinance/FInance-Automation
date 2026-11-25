@@ -16,7 +16,7 @@ on:
         type: boolean
         default: false
       gofrugal_discover:
-        description: "Only run the Gofrugal discovery check"
+        description: "Only test the Gofrugal download (yesterday)"
         type: boolean
         default: false
 
@@ -30,16 +30,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - run: python -m playwright install --with-deps chromium
       - name: Gofrugal discovery
         if: ${{ inputs.gofrugal_discover }}
         env:
           GF_URL: ${{ secrets.GF_URL }}
           GF_USER: ${{ secrets.GF_USER }}
           GF_PASS: ${{ secrets.GF_PASS }}
-        run: |
-          pip install playwright
-          python -m playwright install --with-deps chromium
-          python gofrugal.py 2026-11-01 2026-11-24 | grep -v "^2026-"
+        run: python gofrugal.py
       - name: Download report and build workbook
         if: ${{ !inputs.gofrugal_discover }}
         env:
@@ -49,6 +47,9 @@ jobs:
           SP_TENANT_ID: ${{ secrets.SP_TENANT_ID }}
           SP_CLIENT_ID: ${{ secrets.SP_CLIENT_ID }}
           SP_CLIENT_SECRET: ${{ secrets.SP_CLIENT_SECRET }}
+          GF_URL: ${{ secrets.GF_URL }}
+          GF_USER: ${{ secrets.GF_USER }}
+          GF_PASS: ${{ secrets.GF_PASS }}
         run: |
           ARGS=""
           if [ -n "${{ inputs.date_from }}" ] && [ -n "${{ inputs.date_to }}" ]; then

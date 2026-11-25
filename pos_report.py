@@ -27,7 +27,7 @@ NUM = '#,##,##0;-#,##,##0;"-"'
 HEADS = ["DATE", "VETBUDDY", "GOFRUGAL", "TOTAL GROSS SALES", "ADVANCE RECEIVED", "CREDIT ADJUSTED",
          "TOTAL RECEIVABLES", "PAYTM", "CASH TO BE DEPOSITED", "ACTUAL DEPOSIT", "VARIANCE", "REMARK",
          "CREDIT SALES", "CREDIT CLOSER", "ADVANCE ADJUSTMENT", "PRIOR VARIANCE B/F"]
-INPUTS = {3, 5, 8, 10, 12, 13, 14, 15, 16}
+INPUTS = {5, 8, 10, 12, 13, 14, 15, 16}
 WIDTHS = [12, 12, 12, 12, 11, 11, 12, 11, 12, 11, 11, 28, 10, 10, 12, 11]
 FIRST_ROW = 3
 
@@ -77,7 +77,7 @@ def _unit_sheet(ws, u, days):
                           color="0000FF" if c in INPUTS and c != 12 else "000000")
             if c > 1 and c != 12:
                 x.number_format = NUM
-            x.fill = PINK if c == 11 else YEL if c in INPUTS else AUTO if c == 2 else PatternFill()
+            x.fill = PINK if c == 11 else YEL if c in INPUTS else AUTO if c in (2, 3) else PatternFill()
     t = FIRST_ROW + len(days)
     ws.cell(t, 1, "TOTAL")
     for c in range(2, 17):
@@ -87,7 +87,7 @@ def _unit_sheet(ws, u, days):
         ws.cell(t, c).fill, ws.cell(t, c).font, ws.cell(t, c).border = GREEN, WH, B
     ws.freeze_panes = "B3"
     notes = ["HOW TO USE",
-             "Green column (VETBUDDY) fills automatically each morning. Yellow cells = team inputs. White/pink = formulas.",
+             "Green columns (VETBUDDY, GOFRUGAL) fill automatically each morning. Yellow cells = team inputs. White/pink = formulas.",
              "Total Gross Sales = VetBuddy + Gofrugal",
              "Credit Adjusted = -(Credit Sales - Credit Closer + Advance Adjustment)",
              "Total Receivables = Total Gross Sales + Advance Received + Credit Adjusted",
@@ -133,8 +133,8 @@ def build_template(month, units):
     return wb
 
 
-def fill_vetbuddy(wb, daywise, titles=None):
-    """daywise: {(date, unit): amount}. Writes only column B of each unit sheet.
+def fill_vetbuddy(wb, daywise, titles=None, col=2):
+    """daywise: {(date, unit): amount}. Writes only one column (B = VETBUDDY, C = GOFRUGAL) of each unit sheet.
     titles: {unit: sheet title}; default = sheet title is the unit name."""
     written = 0
     by_title = {v: k for k, v in (titles or {}).items()}
@@ -150,6 +150,6 @@ def fill_vetbuddy(wb, daywise, titles=None):
                 continue
             key = (v, unit)
             if key in daywise:
-                ws.cell(r, 2).value = round(daywise[key], 2)
+                ws.cell(r, col).value = round(daywise[key], 2)
                 written += 1
     return written
