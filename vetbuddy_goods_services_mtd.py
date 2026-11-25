@@ -435,10 +435,19 @@ class SharePoint:
         self.g = "https://graph.microsoft.com/v1.0"
         host = env("SP_SITE_HOST", "sanchuhospital.sharepoint.com")
         sp = env("SP_SITE_PATH", "")
-        site = requests.get(f"{self.g}/sites/{host}" + (f":/{sp.strip('/')}" if sp else ""),
-                            headers=self.H, timeout=60).json()
+        tries = ([f"{self.g}/sites/{host}:/{sp.strip('/')}"] if sp else
+                 [f"{self.g}/sites/{host}", f"{self.g}/sites/{host}:/", f"{self.g}/sites/root"])
+        site, errs = {}, []
+        for u in tries:
+            site = requests.get(u, headers=self.H, timeout=60).json()
+            if "id" in site:
+                break
+            errs.append(f"{u.split('/v1.0')[1]} -> {site.get('error', {}).get('code')}: {site.get('error', {}).get('message')}")
         if "id" not in site:
-            raise RuntimeError(f"SharePoint site '{host}/{sp}' not reachable: {str(site.get('error', site))[:400]}")
+            raise RuntimeError("SharePoint site not reachable. " + " | ".join(errs) +
+                               " -- check the Azure app has Microsoft Graph APPLICATION permission "
+                               "Sites.ReadWrite.All with admin consent granted.")
+        log("SharePoint site:", site.get("webUrl"))
         lib = env("SP_LIBRARY", "Finance Hub")
         drives = requests.get(f"{self.g}/sites/{site['id']}/drives", headers=self.H, timeout=60).json()["value"]
         drive = next((x for x in drives if x["name"] == lib), None)
