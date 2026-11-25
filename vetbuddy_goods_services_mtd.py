@@ -425,15 +425,20 @@ class SharePoint:
         self.ok = bool(tenant and cid and sec)
         if not self.ok:
             return
-        tok = requests.post(f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token", data={
+        t = requests.post(f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token", data={
             "client_id": cid, "client_secret": sec, "grant_type": "client_credentials",
-            "scope": "https://graph.microsoft.com/.default"}, timeout=60).json()["access_token"]
+            "scope": "https://graph.microsoft.com/.default"}, timeout=60).json()
+        if "access_token" not in t:
+            raise RuntimeError(f"Azure sign-in failed: {t.get('error')} - {str(t.get('error_description'))[:300]}")
+        tok = t["access_token"]
         self.H = {"Authorization": f"Bearer {tok}"}
         self.g = "https://graph.microsoft.com/v1.0"
         host = env("SP_SITE_HOST", "sanchuhospital.sharepoint.com")
         sp = env("SP_SITE_PATH", "")
         site = requests.get(f"{self.g}/sites/{host}" + (f":/{sp.strip('/')}" if sp else ""),
                             headers=self.H, timeout=60).json()
+        if "id" not in site:
+            raise RuntimeError(f"SharePoint site '{host}/{sp}' not reachable: {str(site.get('error', site))[:400]}")
         lib = env("SP_LIBRARY", "Finance Hub")
         drives = requests.get(f"{self.g}/sites/{site['id']}/drives", headers=self.H, timeout=60).json()["value"]
         drive = next((x for x in drives if x["name"] == lib), None)
@@ -537,15 +542,21 @@ def main():
     path = OUT / f"VetBuddy_GoodsServices_MTD_{d_to:%Y-%m-%d}.xlsx"
     build(data, d_from, d_to, path)
     log("Saved", path)
-    sp = None
+    sp, sp_error = None, None
     if not args.no_upload:
-        sp = SharePoint()
-        if sp.ok:
-            sp.upload(f"{env('GS_SP_FOLDER', 'Goods & Services MTD')}/{d_to:%Y-%m}/{path.name}", path.read_bytes())
-        else:
-            log("SharePoint settings not set - skipping upload")
+        try:
+            sp = SharePoint()
+            if sp.ok:
+                sp.upload(f"{env('GS_SP_FOLDER', 'Goods & Services MTD')}/{d_to:%Y-%m}/{path.name}", path.read_bytes())
+            else:
+                log("SharePoint settings not set - skipping upload")
+        except Exception as e:
+            sp_error, sp = e, None
+            log("SharePoint FAILED:", e)
     if d_from.month == d_to.month:
         update_pos(sp, data, d_from, d_to)
+    if sp_error:
+        raise RuntimeError(f"Files built (see run artifacts) but SharePoint failed: {sp_error}")
 
 
 if __name__ == "__main__":
