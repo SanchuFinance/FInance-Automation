@@ -15,6 +15,10 @@ on:
         description: "Skip SharePoint upload"
         type: boolean
         default: false
+      gofrugal_discover:
+        description: "Only run the Gofrugal discovery check"
+        type: boolean
+        default: false
 
 jobs:
   run:
@@ -26,7 +30,15 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: Gofrugal discovery
+        if: ${{ inputs.gofrugal_discover }}
+        env:
+          GF_URL: ${{ secrets.GF_URL }}
+          GF_USER: ${{ secrets.GF_USER }}
+          GF_PASS: ${{ secrets.GF_PASS }}
+        run: python gofrugal_discover.py
       - name: Download report and build workbook
+        if: ${{ !inputs.gofrugal_discover }}
         env:
           TZ: Asia/Kolkata
           VB_USER: ${{ secrets.VB_USER }}
