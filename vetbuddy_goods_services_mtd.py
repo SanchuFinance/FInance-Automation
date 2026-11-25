@@ -276,6 +276,9 @@ class VetBuddy:
 
 def _cell_num(html):
     t = re.sub(r"<[^>]+>|&nbsp;", " ", html)
+    m = re.search(r"Rs\.?\s*(-?[\d,]+(?:\.\d+)?)", t)          # "5 ( Rs. 11630.00 )" -> amount, not count
+    if m:
+        return float(m.group(1).replace(",", ""))
     m = re.search(r"-?[\d,]+(?:\.\d+)?", t)
     return float(m.group(0).replace(",", "")) if m else 0.0
 
